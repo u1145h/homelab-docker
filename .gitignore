@@ -1,0 +1,54 @@
+# ==========================================
+# Security & Credentials (CRITICAL - PUBLIC REPO)
+# ==========================================
+.env
+*.env
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+
+# ==========================================
+# Runtime Data & Persistence
+# ==========================================
+data/
+backend/data/
+*.db
+*.db-journal
+*.db-wal
+users.json
+audit.json
+activities.json
+preferences.json
+tasks.json
+
+# ==========================================
+# Compiled Binaries & Build Outputs
+# ==========================================
+bin/
+backend/bin/
+*.exe
+poco-serverd*
+server.exe
+test_bin*
+poco-console*
+
+# ==========================================
+# Node & Frontend Build
+# ==========================================
+node_modules/
+frontend/node_modules/
+frontend/dist/
+*.apk
+
+# ==========================================
+# System & OS Noise
+# ==========================================
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+logs/
+.vscode/
+.idea/

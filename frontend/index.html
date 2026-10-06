@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111314" />
+
+    <!-- Self-Hosted Typography: Plus Jakarta Sans, Space Grotesk, Space Mono (defined in /src/index.css) -->
+
+    <!-- Strict Anti-Indexing & Privacy Safeguards (No Search Engines, No AI Crawlers) -->
+    <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, unavailable_after: 01-Jan-2000" />
+    <meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet, noimageindex" />
+    <meta name="bingbot" content="noindex, nofollow, noarchive, nosnippet, noimageindex" />
+    <meta name="slurp" content="noindex, nofollow, noarchive, nosnippet, noimageindex" />
+    <meta name="duckduckbot" content="noindex, nofollow, noarchive, nosnippet, noimageindex" />
+    <meta name="baiduspider" content="noindex, nofollow, noarchive, nosnippet, noimageindex" />
+    <meta name="yandex" content="noindex, nofollow, noarchive, nosnippet, noimageindex" />
+
+    <title>HomeLab</title>
+    <script>
+      (function() {
+        function syncTheme() {
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta && window.AndroidThemeBridge && typeof window.AndroidThemeBridge.setSystemTheme === 'function') {
+            var color = meta.getAttribute('content');
+            var isDark = color !== '#F6F4EF' && color !== '#f6f4ef' && color !== '#fafaf8';
+            window.AndroidThemeBridge.setSystemTheme(color, isDark);
+          }
+        }
+        var obs = new MutationObserver(syncTheme);
+        obs.observe(document.documentElement, { attributes: true, childList: true, subtree: true });
+        window.addEventListener('DOMContentLoaded', syncTheme);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

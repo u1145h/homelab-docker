@@ -1,0 +1,13 @@
+export { defineWidget, getAllWidgets, getWidget, getWidgetsByCategory, getWidgetCount, computeWidgetState } from './registry'
+export { WidgetCard, WidgetState } from './shared'
+export type { WidgetDefinition, WidgetMetadata, WidgetSize, WidgetState as WidgetStateType } from './shared'
+
+import './cpu'
+import './memory'
+import './storage'
+import './network'
+import './docker'
+import './thermal'
+import './battery'
+import './tailscale'
+import './system'

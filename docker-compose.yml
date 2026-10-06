@@ -1,0 +1,57 @@
+services:
+  homelab:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: homelab-server
+    restart: unless-stopped
+    ports:
+      - "9876:9876"
+    environment:
+      # Authentication & Security
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}
+      - JWT_SECRET=${JWT_SECRET}
+
+      # Persistence & Storage
+      - DATA_DIR=/app/data
+      - FILE_MANAGER_ROOT=/host_root
+
+      # Docker Engine Management
+      - DOCKER_SOCKET_PATH=/var/run/docker.sock
+      - DOCKER_REQUEST_TIMEOUT=30s
+      - DOCKER_ACTION_TIMEOUT=60s
+
+      # Host OS Telemetry Mounts (Linux)
+      - HOST_PROC=/host/proc
+      - HOST_SYS=/host/sys
+      - FRONTEND_DIST_DIR=/app/frontend/dist
+
+      # Interactive Terminal Defaults
+      - TERMINAL_DEFAULT_SHELL=/bin/bash
+      - TERMINAL_MAX_SESSIONS=10
+      - TERMINAL_IDLE_TIMEOUT=5m
+    volumes:
+      # Persistent app data (SQLite history.db, kuro.db, users.json, audit.json)
+      - homelab-data:/app/data
+
+      # Host Docker daemon integration (for Docker management dashboard)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+      # Host OS telemetry mounts (Linux hosts)
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+
+      # File manager root (allows browsing host filesystem)
+      - /:/host_root:ro
+
+    # Linux Host: inspect real host process IDs and IPC
+    # (Safely runs in VM context on Windows/macOS Docker Desktop)
+    pid: host
+    ipc: host
+
+volumes:
+  homelab-data:
+    name: homelab-server-data
+    driver: local

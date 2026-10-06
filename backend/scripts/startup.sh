@@ -1,0 +1,221 @@
+#!/bin/sh
+
+# ==============================================================================
+# Poco Server Appliance - System Startup Script (Ultra-Resilient)
+# ==============================================================================
+
+# Ensure standard system paths
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin:$HOME/go/bin:$PATH"
+
+# Log startup timestamp
+echo "STARTUP.SH TRIGGERED: $(date)" >> /tmp/startup-boot.log 2>&1
+
+###############################################################################
+# Resolve Project Paths Safely
+###############################################################################
+
+if [ -d "$HOME/Projects/poco-server" ]; then
+    PROJECT="$HOME/Projects/poco-server"
+elif [ -d "$HOME/Projects/homelab" ]; then
+    PROJECT="$HOME/Projects/homelab"
+elif [ -f "./backend/cmd/poco-serverd/main.go" ]; then
+    PROJECT="$(pwd)"
+elif [ -f "../../.env" ]; then
+    PROJECT="$(CDPATH= cd -- "$(dirname "$0")/../.." 2>/dev/null && pwd)"
+else
+    PROJECT="$HOME/Projects/poco-server"
+fi
+
+BACKEND="$PROJECT/backend"
+FRONTEND="$PROJECT/frontend"
+ENV_FILE="$PROJECT/.env"
+
+INPUTD_DIR="$HOME/Projects/poco-inputd"
+if [ ! -d "$INPUTD_DIR" ] && [ -d "/home/ullash/Projects/poco-inputd" ]; then
+    INPUTD_DIR="/home/ullash/Projects/poco-inputd"
+fi
+
+###############################################################################
+# Load Environment
+###############################################################################
+
+PORT=9876
+
+if [ -f "$ENV_FILE" ]; then
+    echo "Loading environment from $ENV_FILE..."
+    set -a
+    . "$ENV_FILE" 2>/dev/null || true
+    set +a
+fi
+
+PORT="${PORT:-9876}"
+
+###############################################################################
+# Banner
+###############################################################################
+
+echo
+echo "================================================="
+echo "        KURO / Poco Server Appliance Boot        "
+echo "================================================="
+echo "Project Path : $PROJECT"
+echo "Backend Path : $BACKEND"
+echo "Frontend Path: $FRONTEND"
+echo "Target Port  : $PORT"
+echo "================================================="
+echo
+
+###############################################################################
+# [0/5] Ensure Tailscale Service & VPN Connection
+###############################################################################
+
+echo "[0/5] Checking Tailscale VPN daemon..."
+
+# Ensure tailscale daemon service is running (OpenRC or systemd)
+if command -v rc-service >/dev/null 2>&1; then
+    if ! rc-service tailscale status >/dev/null 2>&1 && ! rc-service tailscaled status >/dev/null 2>&1; then
+        echo "      Starting tailscale service (OpenRC)..."
+        sudo rc-service tailscale start >/dev/null 2>&1 || sudo rc-service tailscaled start >/dev/null 2>&1 || true
+    fi
+elif command -v systemctl >/dev/null 2>&1; then
+    if ! systemctl is-active --quiet tailscaled 2>/dev/null; then
+        echo "      Starting tailscaled service (systemd)..."
+        sudo systemctl start tailscaled >/dev/null 2>&1 || true
+    fi
+fi
+
+# Background connect trigger
+(
+    tailscale up --operator="$USER" >/dev/null 2>&1 || sudo tailscale up >/dev/null 2>&1 || true
+) &
+
+TS_STATUS="$(tailscale status --json 2>/dev/null | grep -o '"BackendState":"[^"]*' | cut -d'"' -f4 || echo "Active")"
+echo "      Tailscale Daemon: ${TS_STATUS:-Active}"
+
+echo
+
+###############################################################################
+# [1/5] Start Button Daemon (poco-inputd)
+###############################################################################
+
+echo "[1/5] Starting button daemon..."
+
+if [ -d "$INPUTD_DIR" ] && [ -x "$INPUTD_DIR/poco-inputd" ]; then
+    (
+        cd "$INPUTD_DIR"
+        exec sudo ./poco-inputd
+    ) >/tmp/poco-inputd.log 2>&1 &
+    BUTTON_PID=$!
+    echo "      Button Daemon PID: $BUTTON_PID"
+else
+    echo "      Button Daemon skipped."
+fi
+
+echo
+
+###############################################################################
+# [2/5] Build & Start Backend Daemon (poco-serverd)
+###############################################################################
+
+echo "[2/5] Starting backend daemon..."
+
+# Stop any previous instance
+if [ -x "$BACKEND/scripts/stop.sh" ]; then
+    "$BACKEND/scripts/stop.sh" >/dev/null 2>&1 || true
+fi
+
+# Build if binary is missing
+if [ ! -f "$BACKEND/poco-serverd" ]; then
+    echo "      Building poco-serverd..."
+    (
+        cd "$BACKEND"
+        go build -o "$BACKEND/poco-serverd" ./cmd/poco-serverd
+    ) || true
+fi
+
+# Start backend daemon
+if [ -f "$BACKEND/poco-serverd" ]; then
+    (
+        cd "$BACKEND"
+        exec "$BACKEND/poco-serverd"
+    ) >"$BACKEND/backend.log" 2>&1 &
+
+    BACKEND_PID=$!
+    echo "$BACKEND_PID" > "$BACKEND/.poco-serverd.pid"
+    echo "      Backend Daemon PID: $BACKEND_PID (logging to $BACKEND/backend.log)"
+else
+    echo "      ERROR: poco-serverd binary could not be started."
+fi
+
+echo
+
+###############################################################################
+# [3/5] Verify Frontend Build
+
+###############################################################################
+
+echo "[3/5] Checking frontend..."
+
+if [ -f "$FRONTEND/dist/index.html" ]; then
+    echo "      Frontend ready: $FRONTEND/dist"
+else
+    echo "      ERROR: frontend build not found: $FRONTEND/dist/index.html"
+fi
+
+echo
+
+###############################################################################
+
+
+# [4/5] Wait for Backend Readiness
+###############################################################################
+
+echo "[4/5] Waiting for backend on port $PORT..."
+
+RETRIES=0
+MAX_RETRIES=15
+
+while [ $RETRIES -lt $MAX_RETRIES ]; do
+    if ss -ltn 2>/dev/null | grep -q ":$PORT "; then
+        echo "      Backend is ready on port $PORT."
+        break
+    fi
+    sleep 1
+    RETRIES=$((RETRIES + 1))
+done
+
+echo
+
+
+###############################################################################
+# [5/5] Launch Interactive TUI (poco-tui)
+###############################################################################
+
+echo "[5/5] Launching Kuro TUI..."
+
+if [ ! -f "$BACKEND/poco-tui" ]; then
+    echo "      Building poco-tui..."
+    (
+        cd "$BACKEND"
+        go build -o "$BACKEND/poco-tui" ./cmd/poco-tui
+    ) || true
+fi
+
+
+###############################################################################
+# Apply Console Font
+###############################################################################
+
+if [ -t 1 ] && command -v setfont >/dev/null 2>&1; then
+    setfont /usr/share/consolefonts/latarcyrheb-sun32.psfu.gz >/dev/null 2>&1 || true
+fi
+
+
+sleep 1
+
+if [ -x "$BACKEND/poco-tui" ]; then
+    cd "$BACKEND"
+    exec ./poco-tui
+else
+    echo "      poco-tui not found, dropping to shell."
+fi

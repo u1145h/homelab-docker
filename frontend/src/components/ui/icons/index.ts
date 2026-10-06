@@ -1,0 +1,6 @@
+export { AppIcon } from './AppIcon'
+export type { AppIconProps } from './AppIcon'
+export { KuroAssistantIcon } from './KuroAssistantIcon'
+export type { KuroAssistantIconProps } from './KuroAssistantIcon'
+export { iconRegistry, getIcon, searchIcons } from './registry'
+export type { IconName, IconRegistryEntry } from './registry'
