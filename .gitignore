@@ -29,10 +29,17 @@ tasks.json
 bin/
 backend/bin/
 *.exe
-poco-serverd*
-server.exe
+/poco-serverd
+/poco-serverd*
+/poco-console
+/poco-console*
+backend/poco-serverd
+backend/poco-serverd*
+backend/poco-console
+backend/poco-console*
 test_bin*
-poco-console*
+server.exe
+!backend/cmd/**
 
 # ==========================================
 # Node & Frontend Build
