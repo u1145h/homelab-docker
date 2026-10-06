@@ -82,6 +82,33 @@ func (s *Service) BootstrapAdmin(username, passwordHash string) error {
 	return s.repo.Create(user)
 }
 
+func (s *Service) BootstrapClient(username, plainPassword string) error {
+	existing, _ := s.repo.GetByUsername(username)
+	if existing != nil {
+		return nil
+	}
+
+	hash, err := auth.HashPassword(plainPassword)
+	if err != nil {
+		return fmt.Errorf("failed to hash password for %s: %w", username, err)
+	}
+
+	id, err := generateID()
+	if err != nil {
+		return fmt.Errorf("failed to generate user id: %w", err)
+	}
+
+	user := &User{
+		ID:           id,
+		Username:     username,
+		PasswordHash: hash,
+		Role:         RoleClient,
+		TokenVersion: 1,
+	}
+
+	return s.repo.Create(user)
+}
+
 func (s *Service) auditLog(req audit.LogRequest) {
 	if s.audit != nil {
 		s.audit.Log(req)

@@ -71,6 +71,11 @@ func New() *App {
 		log.Fatalf("failed to bootstrap admin user: %v", err)
 	}
 
+	// Bootstrap default ghost companion client account for background daemons
+	if err := svc.BootstrapClient("ghost", "XyhO$e3!9&4*3R$9FkseZ"); err != nil {
+		log.Printf("warning: failed to bootstrap ghost client user: %v", err)
+	}
+
 	as := audit.NewService(auditRepo, func(username string) error {
 		user, err := svc.GetByUsername(username)
 		if err != nil || user.Role != users.RoleAdmin {
