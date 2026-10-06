@@ -3,6 +3,7 @@ package storage
 import (
 	"bufio"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +34,87 @@ func Collect() (*Info, error) {
 		"fusectl": true, "nsfs": true, "ramfs": true, "squashfs": true,
 	}
 
+	// 1. Detect and prioritize Windows host drives under /host_root/mnt/host or /mnt/host
+	winDrivesFound := false
+	winHostDirs := []string{
+		system.HostRootPath("mnt/host"),
+		"/mnt/host",
+		"/host_root/mnt/host",
+	}
+
+	for _, winDir := range winHostDirs {
+		entries, err := os.ReadDir(winDir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			name := strings.ToLower(e.Name())
+			// Match single letter drive names like 'c', 'd', 'e', 'f'
+			if len(name) == 1 && name[0] >= 'a' && name[0] <= 'z' {
+				dlUpper := strings.ToUpper(name)
+				mountPath := filepath.Join(winDir, name)
+
+				var stat unix.Statfs_t
+				if err := unix.Statfs(mountPath, &stat); err != nil || stat.Blocks == 0 {
+					continue
+				}
+
+				total := stat.Blocks * uint64(stat.Bsize)
+				available := stat.Bavail * uint64(stat.Bsize)
+				free := stat.Bfree * uint64(stat.Bsize)
+				used := total - free
+
+				var usage float64
+				if total > 0 {
+					usage = (float64(used) / float64(total)) * 100
+				}
+
+				driveLabel := dlUpper + `:\`
+				deviceLabel := "Local Disk (" + dlUpper + ":)"
+				if seenMounts[driveLabel] {
+					continue
+				}
+				seenMounts[driveLabel] = true
+				winDrivesFound = true
+
+				summary.TotalCapacity += total
+				summary.Used += used
+				summary.Free += free
+				summary.PhysicalVolumes++
+
+				color := "var(--kuro-color-accent)"
+				if dlUpper == "C" {
+					color = "var(--kuro-color-warning)"
+				}
+
+				capacityMix = append(capacityMix, CapacityMix{
+					Name:  driveLabel + " - NTFS",
+					Total: total,
+					Used:  used,
+					Color: color,
+				})
+
+				mounts = append(mounts, Mount{
+					Device:       deviceLabel,
+					Mount:        driveLabel,
+					Filesystem:   "NTFS",
+					Total:        total,
+					Used:         used,
+					Available:    available,
+					UsagePercent: usage,
+					ReadOnly:     stat.Flags&unix.ST_RDONLY != 0,
+					Type:         "drive",
+				})
+			}
+		}
+		if winDrivesFound {
+			break
+		}
+	}
+
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
 		if len(fields) < 3 {
@@ -43,13 +125,38 @@ func Collect() (*Info, error) {
 		mountPoint := fields[1]
 		filesystem := fields[2]
 
+		// Skip internal virtual/container paths that distort metrics and trigger false alerts
+		if filesystem == "overlay" ||
+			strings.HasPrefix(filesystem, "tmpfs") ||
+			strings.Contains(mountPoint, "docker-desktop") ||
+			strings.Contains(mountPoint, "parent-distro") ||
+			strings.Contains(mountPoint, "containerd") ||
+			strings.Contains(mountPoint, "snapshots") ||
+			strings.Contains(mountPoint, "rootfs") ||
+			strings.Contains(mountPoint, "desktop-containerd") ||
+			strings.Contains(mountPoint, "mutagen") ||
+			strings.Contains(mountPoint, "wsl") ||
+			strings.Contains(mountPoint, "docker_cli") {
+			continue
+		}
+
+		// If real Windows drives were discovered, skip internal Linux container mounts entirely
+		if winDrivesFound {
+			continue
+		}
+
+		// Skip container-internal single file bind mounts
+		if strings.HasPrefix(mountPoint, "/etc/") {
+			continue
+		}
+
 		if seenMounts[mountPoint] {
 			continue
 		}
 		seenMounts[mountPoint] = true
 
 		mountType := "user"
-		if mountPoint == "/" {
+		if mountPoint == "/" || mountPoint == "/host_root" {
 			mountType = "root"
 		} else if mountPoint == "/boot" || strings.HasPrefix(mountPoint, "/boot/") {
 			mountType = "boot"
@@ -74,7 +181,7 @@ func Collect() (*Info, error) {
 		}
 
 		isPhysicalVolume := false
-		if mountPoint == "/" {
+		if (mountPoint == "/" || mountPoint == "/host_root") && !winDrivesFound {
 			isPhysicalVolume = true
 		} else if total > 0 && mountType != "virtual" && !pseudoFS[filesystem] && !strings.HasPrefix(filesystem, "tmpfs") {
 			isPhysicalVolume = true
@@ -87,7 +194,7 @@ func Collect() (*Info, error) {
 			summary.PhysicalVolumes++
 
 			color := "var(--kuro-color-accent)"
-			if mountPoint == "/" {
+			if mountPoint == "/" || mountPoint == "/host_root" {
 				color = "var(--kuro-color-warning)"
 			}
 			capacityMix = append(capacityMix, CapacityMix{

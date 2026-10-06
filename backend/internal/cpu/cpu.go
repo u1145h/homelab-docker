@@ -53,7 +53,7 @@ func init() {
 }
 
 func Collect() (*Info, error) {
-	model, physical := cpuInfo()
+	model, physical, fallbackFreq := cpuInfo()
 
 	times, ints, err := parseProcStat()
 	if err != nil {
@@ -103,6 +103,11 @@ func Collect() (*Info, error) {
 				}
 			}
 
+			// If sysfs didn't provide frequency, fall back to cpuinfo
+			if freq == 0 {
+				freq = fallbackFreq
+			}
+
 			cores = append(cores, Core{
 				ID:           idStr,
 				UsagePercent: usage,
@@ -114,6 +119,9 @@ func Collect() (*Info, error) {
 	freq := 0
 	if len(cores) > 0 {
 		freq = cores[0].FrequencyMHz
+	}
+	if freq == 0 {
+		freq = fallbackFreq
 	}
 
 	return &Info{
@@ -169,10 +177,10 @@ func parseProcStat() (map[string][2]uint64, Interrupts, error) {
 	return times, ints, nil
 }
 
-func cpuInfo() (string, int) {
+func cpuInfo() (string, int, int) {
 	f, err := os.Open(system.ProcPath("cpuinfo"))
 	if err != nil {
-		return "Unknown", runtime.NumCPU()
+		return "Unknown", runtime.NumCPU(), 0
 	}
 	defer f.Close()
 
@@ -180,6 +188,7 @@ func cpuInfo() (string, int) {
 
 	model := ""
 	physical := runtime.NumCPU()
+	fallbackFreq := 0
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -199,13 +208,34 @@ func cpuInfo() (string, int) {
 				}
 			}
 		}
+
+		if fallbackFreq == 0 && (strings.HasPrefix(line, "cpu MHz") || strings.HasPrefix(line, "BogoMIPS")) {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				if fVal, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64); err == nil && fVal > 0 {
+					fallbackFreq = int(fVal)
+				}
+			}
+		}
+	}
+
+	// Try extracting GHz from model string if fallbackFreq is still 0 (e.g. "Intel i5-10300H CPU @ 2.50GHz")
+	if fallbackFreq == 0 && strings.Contains(model, "GHz") {
+		idx := strings.Index(model, "GHz")
+		start := idx - 1
+		for start >= 0 && (model[start] == '.' || (model[start] >= '0' && model[start] <= '9')) {
+			start--
+		}
+		if ghzVal, err := strconv.ParseFloat(strings.TrimSpace(model[start+1:idx]), 64); err == nil && ghzVal > 0 {
+			fallbackFreq = int(ghzVal * 1000)
+		}
 	}
 
 	if model == "" {
 		model = runtime.GOARCH
 	}
 
-	return model, physical
+	return model, physical, fallbackFreq
 }
 
 func readGovernor() string {

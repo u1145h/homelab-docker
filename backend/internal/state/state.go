@@ -3,6 +3,7 @@ package state
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/ullashroy/poco-server/backend/internal/activities"
 	"github.com/ullashroy/poco-server/backend/internal/battery"
@@ -30,6 +31,10 @@ type State struct {
 	docker    docker.Info
 	tailscale tailscale.Info
 	processes processes.Info
+
+	hostStatus       *Status
+	hostSource       string
+	lastHostReportAt time.Time
 
 	activities *activities.Store
 }
@@ -282,9 +287,68 @@ func (s *State) Processes() processes.Info {
 	return s.processes
 }
 
+func (s *State) SetHostTelemetry(st Status, source string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Fill any missing subsystem info from current container telemetry
+	if st.CPU.Model == "" {
+		st.CPU.Model = s.cpu.Model
+		st.CPU.Cores = s.cpu.Cores
+		st.CPU.FrequencyMHz = s.cpu.FrequencyMHz
+	} else if st.CPU.FrequencyMHz == 0 {
+		st.CPU.FrequencyMHz = s.cpu.FrequencyMHz
+	}
+	if len(st.Storage.Mounts) == 0 && len(s.storage.Mounts) > 0 {
+		st.Storage = s.storage
+	}
+	if len(st.Thermal.Zones) == 0 && len(s.thermal.Zones) > 0 {
+		st.Thermal = s.thermal
+	}
+	if len(st.Processes.Top) == 0 && len(s.processes.Top) > 0 {
+		st.Processes = s.processes
+	}
+	if len(st.Docker.Containers) == 0 && len(s.docker.Containers) > 0 {
+		st.Docker = s.docker
+	}
+	if st.Tailscale.BackendState == "" && s.tailscale.BackendState != "" {
+		st.Tailscale = s.tailscale
+	}
+	if st.System.Hostname == "" && s.system.Hostname != "" {
+		st.System.Hostname = s.system.Hostname
+	}
+	if len(st.Network.Interfaces) == 0 && len(s.network.Interfaces) > 0 {
+		st.Network = s.network
+	}
+
+	s.hostStatus = &st
+	s.hostSource = source
+	s.lastHostReportAt = time.Now()
+}
+
+func (s *State) HasActiveHostTelemetry() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.hostStatus != nil && time.Since(s.lastHostReportAt) < 15*time.Second
+}
+
 func (s *State) Status() Status {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	// Prioritize live physical host telemetry if active
+	if s.hostStatus != nil && time.Since(s.lastHostReportAt) < 15*time.Second {
+		res := *s.hostStatus
+		// Preserve container Docker daemon & Tailscale status if host payload didn't include them
+		if len(res.Docker.Containers) == 0 && len(s.docker.Containers) > 0 {
+			res.Docker = s.docker
+		}
+		if res.Tailscale.BackendState == "" && s.tailscale.BackendState != "" {
+			res.Tailscale = s.tailscale
+		}
+		return res
+	}
 
 	return Status{
 		System:    s.system,

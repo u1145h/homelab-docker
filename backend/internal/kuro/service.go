@@ -39,6 +39,7 @@ type Service struct {
 	Evolution   *evolution.EvolutionWorker
 	Config      config.KuroConfig
 	DefaultUser string
+	State       *state.State
 }
 
 func NewService(cfg config.KuroConfig, defaultUser string, st *state.State, ds *docker.Service, cs *camera.Service) (*Service, error) {
@@ -168,6 +169,7 @@ func NewService(cfg config.KuroConfig, defaultUser string, st *state.State, ds *
 		Evolution:   evolutionWorker,
 		Config:      cfg,
 		DefaultUser: defaultUser,
+		State:       st,
 	}, nil
 }
 

@@ -126,6 +126,9 @@ func NewRouter(
 	r.Get("/api/v1/kuro/integrations/immich/asset/{id}/thumbnail", KuroImmichThumbnailProxyHandler(ks))
 	r.Get("/api/v1/immich/thumbnail/{id}", KuroImmichThumbnailProxyHandler(ks))
 
+	// Host Hardware Telemetry Ingestion (Receives real Win32/Darwin/Linux host companion metrics)
+	r.Post("/api/v1/host/telemetry", HostTelemetryHandler(st))
+
 	// ---------------------------------------------------------------------
 	// Protected Endpoints
 	// ---------------------------------------------------------------------

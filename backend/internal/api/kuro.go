@@ -1272,6 +1272,11 @@ func KuroNodeSyncHandler(ks *kuro.Service) http.HandlerFunc {
 		})
 		_ = ks.DB.SaveNodeSnapshot(nodeID, string(rawSnapshot))
 
+		// If platform is windows, macos, or node is designated host, bridge telemetry into system dashboard state
+		if ks.State != nil && (strings.EqualFold(platform, "windows") || strings.EqualFold(platform, "macos") || strings.Contains(strings.ToLower(nodeID), "host") || strings.Contains(strings.ToLower(nodeID), "desktop")) {
+			IngestNodeTelemetryAsHost(ks.State, nodeID, platform, devName, req.Hardware, req.Battery, req.Storage, req.Network, req.Metadata)
+		}
+
 		syncUser := actor.Username
 		if syncUser == "" {
 			syncUser = ks.DefaultUser
@@ -1823,7 +1828,7 @@ func KuroNodeWebSocketHandler(ks *kuro.Service) http.HandlerFunc {
 					Data: mustJSON(map[string]any{"node_id": payload.NodeID, "ok": true}),
 				})
 
-			case node.MsgHeartbeat:
+			case node.MsgHeartbeat, "TELEMETRY", "telemetry":
 				if registeredNode == nil {
 					return
 				}
@@ -1836,6 +1841,18 @@ func KuroNodeWebSocketHandler(ks *kuro.Service) http.HandlerFunc {
 					}
 					if ks.DB != nil {
 						_ = ks.DB.TouchUserSession(registeredNode.SessionID)
+					}
+				}
+				if ks.State != nil && (strings.EqualFold(registeredNode.Platform, "windows") || strings.EqualFold(registeredNode.Platform, "macos") || strings.Contains(strings.ToLower(registeredNode.ID), "host") || strings.Contains(strings.ToLower(registeredNode.ID), "desktop")) {
+					var rawSnap struct {
+						Hardware any `json:"hardware"`
+						Battery  any `json:"battery"`
+						Storage  any `json:"storage"`
+						Network  any `json:"network"`
+						Metadata any `json:"metadata"`
+					}
+					if err := json.Unmarshal(msg.Data, &rawSnap); err == nil && (rawSnap.Hardware != nil || rawSnap.Battery != nil) {
+						IngestNodeTelemetryAsHost(ks.State, registeredNode.ID, registeredNode.Platform, registeredNode.DisplayName, rawSnap.Hardware, rawSnap.Battery, rawSnap.Storage, rawSnap.Network, rawSnap.Metadata)
 					}
 				}
 

@@ -22,11 +22,54 @@ func Collect() (*Info, error) {
 	uptime, _ := readUptime()
 	loadavg, _ := readLoadAvg()
 
+	osName := "linux"
+	kernelRelease := charsToString(uts.Release[:])
+
+	// 1. Detect Windows host via Docker Desktop / WSL2
+	isWindowsHost := false
+	if _, err := os.Stat(HostRootPath("mnt/host/c/Windows")); err == nil {
+		isWindowsHost = true
+	} else if _, err := os.Stat("/host_root/mnt/host/c/Windows"); err == nil {
+		isWindowsHost = true
+	} else if strings.Contains(strings.ToLower(kernelRelease), "microsoft-standard-wsl2") {
+		isWindowsHost = true
+	}
+
+	// 2. Detect macOS host via Docker Desktop
+	isMacHost := false
+	if _, err := os.Stat(HostRootPath("System/Library/CoreServices/SystemVersion.plist")); err == nil {
+		isMacHost = true
+	}
+
+	if isWindowsHost {
+		osName = "Windows 11 / 10 (Docker Host)"
+	} else if isMacHost {
+		osName = "macOS (Docker Host)"
+	} else {
+		// 3. Native Linux: read distribution name from host os-release
+		for _, osRelPath := range []string{"/host/etc/os-release", "/etc/os-release"} {
+			if data, err := os.ReadFile(osRelPath); err == nil {
+				for _, line := range strings.Split(string(data), "\n") {
+					if strings.HasPrefix(line, "PRETTY_NAME=") {
+						val := strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), "\"")
+						if val != "" && val != "Docker Desktop" {
+							osName = val
+							break
+						}
+					}
+				}
+			}
+			if osName != "linux" {
+				break
+			}
+		}
+	}
+
 	return &Info{
 		Hostname: host,
-		Kernel:   charsToString(uts.Release[:]),
-		OS:       "linux",
-		Arch:     "arm64",
+		Kernel:   kernelRelease,
+		OS:       osName,
+		Arch:     runtime.GOARCH,
 		Go:       runtime.Version(),
 		Uptime:   uptime,
 		BootTime: time.Now().Add(-time.Duration(uptime) * time.Second),
